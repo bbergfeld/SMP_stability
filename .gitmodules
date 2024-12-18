@@ -1,0 +1,3 @@
+[submodule "snowmicropyn"]
+	path = snowmicropyn
+	url = https://github.com/bbergfeld/snowmicropyn.git
