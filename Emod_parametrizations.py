@@ -6,7 +6,6 @@ which can also be scaled to measured data points
 """
 
 import numpy as np
-import uncertainties
 
 #%% getting Elastic moduli from densities
 #Gerling et al AC
@@ -16,7 +15,6 @@ def e_gerling_2017_AC(rho, **kwargs):
     '''
     scaling = kwargs.get('scaling', None)
     if scaling == None:
-        print('no scaling used')
         return(6E-10*rho**4.6 * 1E6)
     else:
         try:
@@ -25,7 +23,6 @@ def e_gerling_2017_AC(rho, **kwargs):
         except:
             print('scaling did not work')
             return(False)
-e_gerling_2017_AC_with_unc = uncertainties.wrap(e_gerling_2017_AC)
 
  #Gerling et al CT
 def e_gerling_2017_CT(rho, **kwargs):
@@ -39,7 +36,6 @@ def e_gerling_2017_CT(rho, **kwargs):
     except: 
         print('no scaling used')
         return(2E-8*rho**3.98 * 1E6)
-e_gerling_2017_CT_with_unc = uncertainties.wrap(e_gerling_2017_CT)
 
  #Bergfeld et al 2022
 def e_bergfeld_2022(rho, **kwargs):
@@ -53,7 +49,6 @@ def e_bergfeld_2022(rho, **kwargs):
     except: 
         print('no scaling used')
         return(6.5E3*(rho/918)**4.4 * 1E6)
-e_bergfeld_2022_with_unc = uncertainties.wrap(e_bergfeld_2022)
             
 # Van Herwijnen 2016
 def e_Herwijnen_2016(rho, **kwargs):
@@ -67,7 +62,6 @@ def e_Herwijnen_2016(rho, **kwargs):
     except: 
         print('no scaling used')
         return(0.93*rho**2.8)  
-e_Herwijnen_2016_with_unc = uncertainties.wrap(e_Herwijnen_2016)
 
 # Scapozza 2004 formel 6.4
 def e_scapozza_2004(rho, **kwargs):
@@ -80,7 +74,6 @@ def e_scapozza_2004(rho, **kwargs):
         return(factor * 0.1873 * np.exp(0.0149*rho)* 1E6)
     except: 
         return(0.1873 * np.exp(0.0149*rho)* 1E6)
-e_scapozza_2004_with_unc = uncertainties.wrap(e_scapozza_2004)
 
 # Sigrist 2006 Diss formel 4.8 
 def e_sigrist_2006(rho, **kwargs):
@@ -94,7 +87,6 @@ def e_sigrist_2006(rho, **kwargs):
     except: 
         return(1.89E-6*rho**2.94* 1E6)
 
-e_sigrist_2006_with_unc = uncertainties.wrap(e_sigrist_2006)
 
     
     
