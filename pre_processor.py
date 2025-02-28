@@ -4,9 +4,11 @@
 @author: Bergfeld Bastian
 """
 
-import logging
 import sys
 import os
+import logging
+import pickle
+import concurrent.futures
 os.environ["OMP_NUM_THREADS"] = "3" # nur bei windows, memory leak durch KMeans-Implementierung in scipy
 sys.path.append('D:\\SMP_stability\\snowmicropyn')
 import snowmicropyn as smpyn
@@ -31,42 +33,8 @@ sys.path.append('D:\\SMP_stability\\weac')
 import weac as weac
 from Emod_parametrizations import e_gerling_2017_AC
 import itertools
-
-
-class LoggerConfig:
-    """Configures logging based on user settings."""
-    @staticmethod
-    def setup_logging(log_to_file=False, log_filename="pipeline.log"):
-        log_format = "%(asctime)s - %(levelname)s - %(message)s"
-        
-        # Clear existing handlers to prevent duplicate logs
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-        
-        logging.basicConfig(level=logging.INFO, format=log_format)
-
-        if log_to_file:
-            file_handler = logging.FileHandler(log_filename)
-            file_handler.setFormatter(logging.Formatter(log_format))
-            logging.getLogger().addHandler(file_handler)
-            logging.info("File logging enabled: %s", log_filename)
-
-        # Suppress logs from external libraries
-        logging.getLogger("snowmicropyn").setLevel(logging.WARNING)
-        logging.getLogger("matplotlib").setLevel(logging.WARNING)
-
-
-def error_handling_decorator(func):
-    """Decorator to handle errors and log them automatically."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            logging.error(f"Error in {func.__name__}: {e}", exc_info=True)
-            return None
-    return wrapper
-    
+sys.path.append('D:\\SMP_stability')
+from logging_class import LoggerConfig, error_handling_decorator
 
 
 class PreProcessor:
@@ -74,8 +42,30 @@ class PreProcessor:
        - get clusters
        - get mechanical properties"""
     
-    def __init__(self, pnt_source):
-        self.source = pnt_source  # Instance variable
+    def __init__(self, source):
+        """Handles input validation: single file, list, or folder."""
+        if isinstance(source, str):  
+            if os.path.isfile(source) and source.lower().endswith('.pnt'):
+                self.source = source  # ✅ Store as a string for a single file
+            elif os.path.isdir(source):  
+                self.source = self._get_pnt_files_from_folder(source)  # Returns a list
+            else:
+                raise ValueError("Error: Provided string is not a valid .pnt file or folder.")
+        
+        elif isinstance(source, list):  
+            if all(isinstance(f, str) and f.lower().endswith('.pnt') for f in source):
+                self.source = source  # ✅ Store as a list for multiple files
+            else:
+                raise ValueError("Error: List contains non-.pnt files or invalid elements.")
+        else:
+            raise TypeError("Error: Input should be a string (file path or folder) or a list of .pnt files.")
+
+    def _get_pnt_files_from_folder(self, folder):
+        """Returns a list of all .pnt files in the provided folder."""
+        return [os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith('.pnt')]
+
+
+
 
     @error_handling_decorator
     def _load_pnt_file(self, source: str) -> pd.DataFrame | None:
@@ -119,10 +109,7 @@ class PreProcessor:
     
         Output:
             pd.DataFrame or None: DataFrame with added cluster and layer information.
-        """
-    
-        logging.info(f"   Performing layer clustering for {derivatives.attrs['name']}")
-    
+        """    
         # Define default features and their weights
         default_features = {
             "force_median": 3,
@@ -159,7 +146,6 @@ class PreProcessor:
             for i in range(len(cluster_range))]
         opt_number_clusters = cluster_range[np.argmax(distances)]
         n_clusters = opt_number_clusters + additional_clusters
-        logging.info(f"   Optimal number of clusters: {opt_number_clusters}, using {n_clusters} clusters with adjustment.")
     
         # Apply KMeans clustering
         kmeans = KMeans(n_clusters=n_clusters, random_state=42)
@@ -189,14 +175,14 @@ class PreProcessor:
         layered_derivatives['thickness'] = thickness_values
         layered_derivatives = layered_derivatives[['depthTop','thickness', 'cluster_id', 'force_median', 'L2012_lambda', 'L2012_f0',
                  'L2012_delta', 'L2012_L', 'CR2020_density', 'CR2020_ssa']] # Reorder the DataFrame columns
-        logging.info("   Layer clustering completed successfully.")
+
+        logging.info(f"   {layered_derivatives.attrs['name']} - Optimal number of clusters: {opt_number_clusters}, using {n_clusters}.")
     
         return layered_derivatives
 
 
     @error_handling_decorator
     def _get_mechanical_properties(self, layered_derivatives: pd.DataFrame) -> pd.DataFrame | None:
-        logging.info(f"   get layer properties for {layered_derivatives.attrs['name']}")
 
         def _get_weak_layer_fracture_energy(layered_derivatives):
             def rolling_integral(df, window_size):
@@ -258,6 +244,8 @@ class PreProcessor:
         layered_derivatives.load_above.attrs['unit'] = "kg/m^2, Pa"
 
         self.df = layered_derivatives
+        logging.info(f"   {layered_derivatives.attrs['name']} - Number of layers: {len(layered_derivatives)}")
+
         return layered_derivatives
 
     def plot_density(self):
@@ -287,11 +275,77 @@ class PreProcessor:
         ax.set_xlim(0, density_xmax)  # Ensure full density range + padding
         ax.tick_params(axis='x', colors='blue')  # Color density axis for clarity
 
+    def get_pnt_files(path):
+        """
+        Checks if the provided path is:
+        1. A .pnt file -> Returns the filename.
+        2. A folder -> Returns a list of all .pnt files in the folder.
+        3. A list of .pnt files -> Returns the list as is.
+        """
+        if isinstance(path, list):  
+            # Check if path is already a list of .pnt files
+            if all(isinstance(f, str) and f.lower().endswith('.pnt') for f in path):
+                return path  
+            else:
+                return "Error: The list contains non-.pnt files or invalid items."
+    
+        elif os.path.isfile(path):
+            # Check if it's a .pnt file
+            if path.lower().endswith('.pnt'):
+                return [os.path.basename(path)]
+            else:
+                return f"Error: {path} is a file but not a .pnt file."
+        
+        elif os.path.isdir(path):
+            # Get all .pnt files in the folder
+            pnt_files = [f for f in os.listdir(path) if f.lower().endswith('.pnt')]
+            return pnt_files if pnt_files else "No .pnt files found in the folder."
+        
+        else:
+            return "Error: Invalid file, folder path, or list."
 
     @classmethod
-    def run(cls, pnt_source):
-        logging.info("starting PreProcessor...")
-        profile = cls(pnt_source)
+    def run(cls, source):
+        """Runs the file processing, collects DataFrames, and saves them as pickle files."""
+        logging.info(f"Preprocessing started...")
+
+        instance = cls(source)  # Create an instance for validation
+
+        if isinstance(instance.source, str):  
+            df = cls.run_file(instance.source)
+            cls.save_dataframe(instance.source, df)
+        else:
+            # ✅ Multiple files case (parallel processing)
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = {executor.submit(cls.run_file, file): file for file in instance.source}
+                
+                for future in concurrent.futures.as_completed(futures):
+                    file = futures[future]  # Get the associated file
+                    try:
+                        df = future.result()  # Get DataFrame result
+                        cls.save_dataframe(file, df)  # Save DataFrame as pickle
+                    except Exception as e:
+                        print(f"Error processing {file}: {e}")
+        logging.info(f"Preprocessing finished...")
+
+
+    @classmethod
+    def save_dataframe(cls, file, df):
+        """Saves a DataFrame as a pickle file, modifying the filename."""
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Error: Expected a Pandas DataFrame.")
+        new_filename = file[:-4] + "_clustered_profile.pkl"
+        with open(new_filename, "wb") as f:
+            pickle.dump(df, f)
+        logging.info(f"   Saved: {new_filename}")
+    
+    @classmethod
+    def run_file(cls, pnt_file):
+        """Processes a single file (file is passed as a string)."""
+        if not isinstance(pnt_file, str):
+            raise TypeError(f"Expected a string file path, but got {type(pnt_file)}")
+
+        profile = cls(pnt_file)
         pnt_prof = profile._calc_basic_features()
         lay_prof = profile._get_layers(pnt_prof)
         df_layers = profile._get_mechanical_properties(lay_prof)
