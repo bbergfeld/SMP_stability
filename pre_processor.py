@@ -306,14 +306,15 @@ class PreProcessor:
 
     @classmethod
     def run(cls, source):
-        """Runs the file processing, collects DataFrames, and saves them as pickle files."""
-        logging.info(f"Preprocessing started...")
-
+        """Runs the file processing, saves results, and returns DataFrames."""
         instance = cls(source)  # Create an instance for validation
+        results = []  # List to store DataFrames
 
         if isinstance(instance.source, str):  
+            # ✅ Single file case
             df = cls.run_file(instance.source)
             cls.save_dataframe(instance.source, df)
+            results.append(df)
         else:
             # ✅ Multiple files case (parallel processing)
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -324,8 +325,11 @@ class PreProcessor:
                     try:
                         df = future.result()  # Get DataFrame result
                         cls.save_dataframe(file, df)  # Save DataFrame as pickle
+                        results.append(df)  # Store DataFrame in results list
                     except Exception as e:
                         print(f"Error processing {file}: {e}")
+
+        return results  # ✅ Return list of DataFrames
         logging.info(f"Preprocessing finished...")
 
 
